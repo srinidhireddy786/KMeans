@@ -1,357 +1,295 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
 import plotly.graph_objects as go
-import plotly.express as px
-
-# Page configuration
-st.set_page_config(
-    page_title="Mall Customer Clustering",
-    page_icon="🛍️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS for better styling
-st.markdown("""
-<style>
-
-/* Main page background for light mode */
-.main {
-    background: #ffffff;
-}
-
-/* All normal text */
-html, body, [class*="css"]  {
-    color: #111111 !important;
-}
-
-/* Headings */
-h1, h2, h3, h4, h5, h6 {
-    color: #111111 !important;
-    text-shadow: none !important;
-}
-
-/* Metric cards */
-.stMetric {
-    background-color: #f5f6fa !important;
-    padding: 20px;
-    border-radius: 10px;
-    border-left: 5px solid #667eea;
-}
-
-/* Prediction box – light version */
-.prediction-box {
-    background: #f2f4ff !important;
-    color: #111111 !important;
-    padding: 30px;
-    border-radius: 15px;
-    text-align: center;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-}
-
-/* Cluster info cards */
-.cluster-info {
-    background-color: #ffffff !important;
-    color: #111111 !important;
-    padding: 20px;
-    border-radius: 10px;
-    margin: 10px 0;
-    border-left: 5px solid #667eea;
-}
-
-/* Paragraph text */
-p, li, span, label {
-    color: #111111 !important;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# Load the trained model
-@st.cache_resource
-def load_model():
-    """Load the trained Decision Tree model"""
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+ 
+# Set page config
+st.set_page_config(page_title="Traffic Anomaly Detection", layout="wide", initial_sidebar_state="expanded")
+ 
+# Title and description
+st.title("🚗 Traffic Flow Anomaly Detection")
+st.markdown("Detect anomalies in network traffic using Isolation Forest algorithm")
+ 
+# Sidebar for parameters
+st.sidebar.header("⚙️ Configuration")
+contamination = st.sidebar.slider("Contamination Rate", 0.01, 0.2, 0.04, 0.01)
+n_estimators = st.sidebar.slider("Number of Trees", 50, 200, 100, 10)
+ 
+# Load data
+st.sidebar.header("📁 Data")
+uploaded_file = st.sidebar.file_uploader("Upload CSV file", type="csv")
+ 
+# Create sample dataset option
+use_sample = st.sidebar.checkbox("Use sample dataset", value=True)
+ 
+if use_sample and uploaded_file is None:
+    # Load the default dataset
     try:
-        model = joblib.load("kmeans_model.pkl")
-        return model
+        df = pd.read_csv('embedded_system_network_security_dataset.csv')
+        st.sidebar.success("✓ Sample dataset loaded")
     except FileNotFoundError:
-        st.error("Model file not found. Please train the model first.")
-        return None
-
-# Load the dataset to get statistics
-@st.cache_data
-def load_data():
-    """Load the original customer data"""
-    try:
-        df = pd.read_csv("Mall_Customers (3).csv")
-        return df
-    except FileNotFoundError:
-        st.error("Data file not found.")
-        return None
-
-# Cluster information with descriptions
-CLUSTER_INFO = {
-    0: {
-        "name": "High Value Customers",
-        "description": "Young customers with high spending score and good income",
-        "color": "#FF6B6B",
-        "characteristics": ["Age: Young (25-40)", "Income: High (40-80k)", "Spending Score: High (70-100)"]
-    },
-    1: {
-        "name": "Potential Target",
-        "description": "Middle-aged customers with moderate to high spending",
-        "color": "#4ECDC4",
-        "characteristics": ["Age: Middle-aged (35-50)", "Income: Moderate (30-70k)", "Spending Score: Moderate to High (50-100)"]
-    },
-    2: {
-        "name": "Average Customers",
-        "description": "Young customers with low to moderate spending",
-        "color": "#45B7D1",
-        "characteristics": ["Age: Young (20-50)", "Income: Low (20-50k)", "Spending Score: Low to Moderate (20-60)"]
-    },
-    3: {
-        "name": "Loyal Customers",
-        "description": "Older customers with variable spending patterns",
-        "color": "#FFA07A",
-        "characteristics": ["Age: Older (40-70)", "Income: Variable", "Spending Score: Variable"]
-    },
-    4: {
-        "name": "Budget Conscious",
-        "description": "Customers with high income but low spending",
-        "color": "#98D8C8",
-        "characteristics": ["Age: Varied", "Income: High (50-150k)", "Spending Score: Low (10-50)"]
-    }
-}
-
-# Title and Description
-st.markdown("""
-    <h1>🛍️ Mall Customer Clustering Prediction</h1>
-    <p style='color: white; font-size: 16px; text-align: center;'>
-    Predict customer segments and discover which group your customer belongs to!
-    </p>
-""", unsafe_allow_html=True)
-
-# Load model and data
-model = load_model()
-df = load_data()
-
-if model is not None and df is not None:
-    # Create two columns for layout
-    col1, col2 = st.columns([1, 1], gap="large")
-    
-    with col1:
-        st.markdown("### 📊 Customer Information")
-        st.markdown("---")
-        
-        # Input fields with sliders
-        age = st.slider(
-            "👤 Age",
-            min_value=int(df['Age'].min()),
-            max_value=int(df['Age'].max()),
-            value=30,
-            step=1
-        )
-        
-        annual_income = st.slider(
-            "💰 Annual Income (k$)",
-            min_value=int(df['Annual Income (k$)'].min()),
-            max_value=int(df['Annual Income (k$)'].max()),
-            value=50,
-            step=1
-        )
-        
-        spending_score = st.slider(
-            "🎯 Spending Score (1-100)",
-            min_value=1,
-            max_value=100,
-            value=50,
-            step=1
-        )
-        
-        st.markdown("---")
-        
-        # Display input values
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            st.metric("Age", f"{age} years")
-        with col_b:
-            st.metric("Income", f"${annual_income}k")
-        with col_c:
-            st.metric("Spending", f"{spending_score}/100")
-    
-    with col2:
-        st.markdown("### 📈 Dataset Statistics")
-        st.markdown("---")
-        
-        # Show statistics
-        col_x, col_y, col_z = st.columns(3)
-        with col_x:
-            st.metric("Total Customers", f"{len(df)}")
-        with col_y:
-            st.metric("Avg Age", f"{df['Age'].mean():.1f} years")
-        with col_z:
-            st.metric("Avg Income", f"${df['Annual Income (k$)'].mean():.1f}k")
-        
-        st.markdown("---")
-        
-        col_p, col_q, col_r = st.columns(3)
-        with col_p:
-            st.metric("Min Income", f"${df['Annual Income (k$)'].min():.0f}k")
-        with col_q:
-            st.metric("Max Income", f"${df['Annual Income (k$)'].max():.0f}k")
-        with col_r:
-            st.metric("Avg Spending", f"{df['Spending Score (1-100)'].mean():.1f}")
-    
-    st.markdown("---")
-    
-    # Prediction section
-    if st.button("🚀 Predict Cluster", use_container_width=True, key="predict_btn"):
-        # Create a DataFrame with the input values (need to scale them)
-        input_data = pd.DataFrame({
-            'Age': [age],
-            'Annual Income (k$)': [annual_income],
-            'Spending Score (1-100)': [spending_score]
-        })
-        
-        # Fit scaler on original data to ensure consistency
-        scaler = StandardScaler()
-        scaler.fit(df[['Age', 'Annual Income (k$)', 'Spending Score (1-100)']])
-        
-        # Scale the input data
-        scaled_input = scaler.transform(input_data)
-        
-        # Make prediction
-        cluster = model.predict(scaled_input)[0]
-        
-        # Display prediction result
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        cluster_details = CLUSTER_INFO[cluster]
-        
-        st.markdown(f"""
-            <div class="prediction-box">
-                <h2 style='margin: 0; font-size: 28px;'>Cluster Prediction</h2>
-                <h1 style='margin: 10px 0; font-size: 48px; text-shadow: none;'>{cluster}</h1>
-                <h3 style='margin: 10px 0; font-size: 24px; text-shadow: none;'>{cluster_details['name']}</h3>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Display cluster information
-        col1_info, col2_info = st.columns(2, gap="large")
-        
-        with col1_info:
-            st.markdown("### 📋 Cluster Description")
-            st.markdown(f"""
-                <div class="cluster-info">
-                    <p><strong>{cluster_details['description']}</strong></p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("### 🎯 Key Characteristics")
-            for char in cluster_details['characteristics']:
-                st.markdown(f"• {char}")
-        
-        with col2_info:
-            st.markdown("### 💡 Cluster Insights")
-            
-            # Calculate cluster statistics from original data
-            clustered_data = pd.read_csv("clustered_mall_customers.csv")
-            cluster_stats = clustered_data[clustered_data['Cluster'] == cluster]
-            
-            st.markdown(f"""
-                <div class="cluster-info">
-                    <p><strong>Size:</strong> {len(cluster_stats)} customers ({len(cluster_stats)/len(clustered_data)*100:.1f}%)</p>
-                    <p><strong>Avg Age:</strong> {df[df.index.isin(cluster_stats.index)]['Age'].mean():.1f} years</p>
-                    <p><strong>Avg Income:</strong> ${df[df.index.isin(cluster_stats.index)]['Annual Income (k$)'].mean():.1f}k</p>
-                    <p><strong>Avg Spending:</strong> {df[df.index.isin(cluster_stats.index)]['Spending Score (1-100)'].mean():.1f}/100</p>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Visualizations
-        st.markdown("### 📊 Visualizations")
-        
-        viz_col1, viz_col2 = st.columns(2, gap="large")
-        
-        with viz_col1:
-            # 3D scatter plot showing the prediction
-            clustered_df = pd.read_csv("clustered_mall_customers.csv")
-            
-            # Inverse transform to original scale for visualization
-            original_scaled = clustered_df[['Age', 'Annual Income (k$)', 'Spending Score (1-100)']].copy()
-            original_unscaled = scaler.inverse_transform(original_scaled)
-            
-            fig = px.scatter_3d(
-                x=original_unscaled[:, 0],
-                y=original_unscaled[:, 1],
-                z=original_unscaled[:, 2],
-                color=clustered_df['Cluster'].astype(str),
-                labels={'x': 'Age', 'y': 'Annual Income (k$)', 'z': 'Spending Score'},
-                title='3D Cluster Distribution',
-                color_discrete_sequence=px.colors.qualitative.Plotly
-            )
-            
-            # Add the prediction point
-            fig.add_scatter3d(
-                x=[age], y=[annual_income], z=[spending_score],
-                mode='markers',
-                marker=dict(size=15, color='red', symbol='diamond'),
-                name='Your Input',
-                showlegend=True
-            )
-            
-            fig.update_layout(height=500, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with viz_col2:
-            # Cluster distribution pie chart
-            cluster_counts = clustered_df['Cluster'].value_counts().sort_index()
-            colors_list = [CLUSTER_INFO[i]['color'] for i in cluster_counts.index]
-            
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=[f"Cluster {i}: {CLUSTER_INFO[i]['name']}" for i in cluster_counts.index],
-                values=cluster_counts.values,
-                marker=dict(colors=colors_list),
-                text=cluster_counts.values,
-                textposition='inside'
-            )])
-            
-            fig_pie.update_layout(
-                title='Customer Distribution by Cluster',
-                height=500,
-                showlegend=True
-            )
-            
-            st.plotly_chart(fig_pie, use_container_width=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Additional insights
-        st.markdown("### 💼 Business Recommendations")
-        
-        recommendations = {
-            0: "🎯 Premium targeting strategy - Focus on retention and upselling premium products",
-            1: "📈 Growth opportunity - Target with seasonal promotions and loyalty programs",
-            2: "🎁 Budget offerings - Create value packs and discounts to increase engagement",
-            3: "🤝 Relationship building - Personalized communication and special offers",
-            4: "💎 Exclusive products - Premium/investment products despite lower spending"
-        }
-        
-        st.info(f"**Recommendation:** {recommendations[cluster]}")
-
+        st.error("Dataset file not found. Please upload a CSV file.")
+        st.stop()
+elif uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+    st.sidebar.success("✓ File uploaded successfully")
 else:
-    st.error("Failed to load model or data. Please ensure the files are present.")
-
+    st.error("Please upload a CSV file or use sample dataset")
+    st.stop()
+ 
+# Data preprocessing
+st.sidebar.header("⚙️ Data Processing")
+with st.sidebar.expander("Processing Steps"):
+    st.write("1. Drop label column (if exists)")
+    st.write("2. Convert bool to int")
+    st.write("3. Scale features")
+    st.write("4. Train Isolation Forest")
+    st.write("5. Predict anomalies")
+ 
+# Process data
+features = df.drop(columns=['label'], errors='ignore')
+ 
+# Convert bool to int
+for col in features.columns:
+    if features[col].dtype == 'bool':
+        features[col] = features[col].astype(int)
+ 
+# Handle missing values
+features = features.fillna(features.mean())
+ 
+# Scale features
+scaler = StandardScaler()
+scaled_features = scaler.fit_transform(features)
+scaled_df = pd.DataFrame(scaled_features, columns=features.columns)
+ 
+# Train model
+model = IsolationForest(
+    n_estimators=n_estimators,
+    contamination=contamination,
+    max_samples=256,
+    random_state=42
+)
+model.fit(scaled_df)
+anomaly_labels = model.predict(scaled_df)
+scaled_df['anomaly'] = anomaly_labels
+ 
+# Create tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📈 Visualizations", "📋 Details", "📥 Export"])
+ 
+# Tab 1: Overview
+with tab1:
+    col1, col2, col3, col4 = st.columns(4)
+   
+    normal_count = len(scaled_df[scaled_df['anomaly'] == 1])
+    anomaly_count = len(scaled_df[scaled_df['anomaly'] == -1])
+    total_count = len(scaled_df)
+   
+    with col1:
+        st.metric("Total Records", total_count, delta=None)
+    with col2:
+        st.metric("Normal", normal_count, f"{normal_count/total_count*100:.1f}%")
+    with col3:
+        st.metric("Anomalies", anomaly_count, f"{anomaly_count/total_count*100:.1f}%")
+    with col4:
+        st.metric("Anomaly Rate", f"{contamination*100:.1f}%", delta=None)
+   
+    st.divider()
+   
+    # Dataset preview
+    st.subheader("Dataset Preview")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Original Data**")
+        st.dataframe(df.head(5), use_container_width=True)
+    with col2:
+        st.write("**With Anomaly Labels**")
+        st.dataframe(scaled_df.head(5), use_container_width=True)
+ 
+# Tab 2: Visualizations
+with tab2:
+    st.subheader("Anomaly Detection Visualizations")
+   
+    normal = scaled_df[scaled_df['anomaly'] == 1]
+    anomaly = scaled_df[scaled_df['anomaly'] == -1]
+   
+    # Get numeric columns
+    numeric_cols = scaled_df.columns.drop('anomaly').tolist()
+   
+    if len(numeric_cols) >= 2:
+        col1, col2 = st.columns(2)
+       
+        with col1:
+            st.write("**Select Features for 2D Plot**")
+            feat1 = st.selectbox("X-axis:", numeric_cols, key="feat1")
+            feat2 = st.selectbox("Y-axis:", numeric_cols, key="feat2", index=1 if len(numeric_cols) > 1 else 0)
+       
+        with col2:
+            st.write("")
+            st.write("")
+            plot_type = st.radio("Plot Type:", ["Scatter", "Density"], horizontal=True)
+       
+        # Create matplotlib plot
+        fig, ax = plt.subplots(figsize=(10, 6))
+       
+        if plot_type == "Scatter":
+            ax.scatter(normal[feat1], normal[feat2], c='blue', label='Normal', alpha=0.6, s=20)
+            ax.scatter(anomaly[feat1], anomaly[feat2], c='red', label='Anomaly', alpha=0.8, s=100, marker='x', linewidths=2)
+        else:
+            ax.hist2d(normal[feat1], normal[feat2], bins=30, alpha=0.7, label='Normal', cmap='Blues')
+            ax.scatter(anomaly[feat1], anomaly[feat2], c='red', label='Anomaly', s=100, marker='x', linewidths=2)
+       
+        ax.set_xlabel(feat1, fontsize=11, fontweight='bold')
+        ax.set_ylabel(feat2, fontsize=11, fontweight='bold')
+        ax.set_title(f'{feat1} vs {feat2}', fontsize=12, fontweight='bold')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig, use_container_width=True)
+   
+    # 3D Interactive Plot
+    st.write("")
+    st.subheader("3D Interactive Visualization")
+   
+    if len(numeric_cols) >= 3:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            feat_x = st.selectbox("X-axis:", numeric_cols, key="3d_feat1")
+        with col2:
+            feat_y = st.selectbox("Y-axis:", numeric_cols, key="3d_feat2", index=1 if len(numeric_cols) > 1 else 0)
+        with col3:
+            feat_z = st.selectbox("Z-axis:", numeric_cols, key="3d_feat3", index=2 if len(numeric_cols) > 2 else 0)
+       
+        fig = go.Figure()
+       
+        fig.add_trace(go.Scatter3d(
+            x=normal[feat_x], y=normal[feat_y], z=normal[feat_z],
+            mode='markers', name='Normal',
+            marker=dict(size=4, color='blue', opacity=0.6)
+        ))
+       
+        fig.add_trace(go.Scatter3d(
+            x=anomaly[feat_x], y=anomaly[feat_y], z=anomaly[feat_z],
+            mode='markers', name='Anomaly',
+            marker=dict(size=8, color='red', opacity=0.9, symbol='diamond')
+        ))
+       
+        fig.update_layout(
+            title="3D Plot: Normal vs Anomaly",
+            scene=dict(
+                xaxis_title=feat_x,
+                yaxis_title=feat_y,
+                zaxis_title=feat_z
+            ),
+            height=600,
+            hovermode='closest'
+        )
+       
+        st.plotly_chart(fig, use_container_width=True)
+ 
+# Tab 3: Details
+with tab3:
+    st.subheader("Anomaly Statistics")
+   
+    col1, col2 = st.columns(2)
+   
+    with col1:
+        st.write("**Normal Data Statistics**")
+        st.dataframe(normal.describe().drop('anomaly', axis=1), use_container_width=True)
+   
+    with col2:
+        st.write("**Anomaly Data Statistics**")
+        st.dataframe(anomaly.describe().drop('anomaly', axis=1), use_container_width=True)
+   
+    st.divider()
+   
+    # Feature importance based on variance difference
+    st.subheader("Feature Analysis")
+   
+    variance_diff = []
+    for col in numeric_cols:
+        normal_var = normal[col].var()
+        anomaly_var = anomaly[col].var()
+        diff = abs(anomaly_var - normal_var)
+        variance_diff.append({'Feature': col, 'Variance_Diff': diff})
+   
+    var_df = pd.DataFrame(variance_diff).sort_values('Variance_Diff', ascending=False)
+   
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.barh(var_df['Feature'], var_df['Variance_Diff'], color='steelblue')
+    ax.set_xlabel('Variance Difference', fontweight='bold')
+    ax.set_title('Feature Variance Difference (Anomaly vs Normal)', fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='x')
+    st.pyplot(fig, use_container_width=True)
+ 
+# Tab 4: Export
+with tab4:
+    st.subheader("Export Results")
+   
+    # Add predictions to original dataframe
+    results_df = df.copy()
+    results_df['anomaly_prediction'] = anomaly_labels
+    results_df['anomaly_type'] = results_df['anomaly_prediction'].map({1: 'Normal', -1: 'Anomaly'})
+   
+    col1, col2 = st.columns(2)
+   
+    with col1:
+        csv = results_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Full Results (CSV)",
+            data=csv,
+            file_name="anomaly_detection_results.csv",
+            mime="text/csv"
+        )
+   
+    with col2:
+        anomaly_only = results_df[results_df['anomaly_type'] == 'Anomaly']
+        csv_anomaly = anomaly_only.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Anomalies Only (CSV)",
+            data=csv_anomaly,
+            file_name="detected_anomalies.csv",
+            mime="text/csv"
+        )
+   
+    st.divider()
+    st.subheader("Summary Report")
+   
+    summary = f"""
+    ## Traffic Anomaly Detection Report
+   
+    ### Dataset Summary
+    - **Total Records**: {total_count}
+    - **Normal Records**: {normal_count} ({normal_count/total_count*100:.2f}%)
+    - **Anomalous Records**: {anomaly_count} ({anomaly_count/total_count*100:.2f}%)
+   
+    ### Model Configuration
+    - **Algorithm**: Isolation Forest
+    - **Number of Trees**: {n_estimators}
+    - **Contamination Rate**: {contamination}
+    - **Sample Size**: 256
+    - **Features Used**: {len(numeric_cols)}
+   
+    ### Detected Anomalies
+    - **Total Anomalies**: {anomaly_count}
+    - **Detection Rate**: {anomaly_count/total_count*100:.2f}%
+   
+    ---
+    *Report Generated on 2026-02-16*
+    """
+   
+    st.markdown(summary)
+   
+    # Download report
+    report_text = summary.replace("## ", "").replace("### ", "").replace("**", "").replace("- ", "")
+    st.download_button(
+        label="📥 Download Report (TXT)",
+        data=report_text,
+        file_name="anomaly_detection_report.txt",
+        mime="text/plain"
+    )
+ 
 # Footer
-st.markdown("---")
-st.markdown("""
-    <div style='text-align: center; color: white; padding: 20px;'>
-    <p>🛍️ Mall Customer Clustering Analysis | Powered by K-Means & Decision Tree ML Models</p>
-    </div>
-""", unsafe_allow_html=True)
+st.divider()
+st.caption("🔬 Traffic Flow Anomaly Detection System | Powered by Streamlit")
